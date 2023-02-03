@@ -1,25 +1,55 @@
 using BuberDinner.Api.Common.Http;
 using ErrorOr;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
-namespace BuberDinner.Api.Controllers;
-
-[ApiController]
-public class ApiController : ControllerBase
+namespace BuberDinner.Api.Controllers
 {
-    protected IActionResult Problem(List<Error> errors)
+    [ApiController]
+    public class ApiController : ControllerBase
     {
-        HttpContext.Items[HttpContextItemKeys.Errors] = errors;
-
-        var firstError = errors[0];
-        var statusCode = firstError.Type switch
+        protected IActionResult Problem(List<Error> errors)
         {
-            ErrorType.Conflict => StatusCodes.Status409Conflict,
-            ErrorType.Validation => StatusCodes.Status400BadRequest,
-            ErrorType.NotFound => StatusCodes.Status404NotFound,
-            _ => StatusCodes.Status500InternalServerError
-        };
+            if (errors.Count is 0)
+            {
+                return Problem();
+            }
 
-        return Problem(statusCode: statusCode, title: firstError.Description);
+            if (errors.All(error => error.Type == ErrorType.Validation))
+            {
+                return ValidationProblem(errors);
+            }
+
+            HttpContext.Items[HttpContextItemKeys.Errors] = errors;
+
+            return Problem(errors[0]);
+        }
+
+        private IActionResult Problem(Error error)
+        {
+            int statusCode = error.Type switch
+            {
+                ErrorType.Conflict => StatusCodes.Status409Conflict,
+                ErrorType.Validation => StatusCodes.Status400BadRequest,
+                ErrorType.NotFound => StatusCodes.Status404NotFound,
+                ErrorType.Failure => throw new NotImplementedException(),
+                ErrorType.Unexpected => throw new NotImplementedException(),
+                _ => StatusCodes.Status500InternalServerError
+            };
+
+            return Problem(statusCode: statusCode, title: error.Description);
+        }
+
+        private IActionResult ValidationProblem(List<Error> errors)
+        {
+            ModelStateDictionary modelStateDictionary = new ModelStateDictionary();
+
+            foreach (Error error in errors)
+            {
+                modelStateDictionary.AddModelError(error.Code, error.Description);
+            }
+
+            return ValidationProblem(modelStateDictionary);
+        }
     }
 }
